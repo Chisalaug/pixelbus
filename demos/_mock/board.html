@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>mock · canvas 白板</title>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    font-family: "Microsoft YaHei", sans-serif;
+    background: #c9ced6; height: 100vh; overflow: hidden;
+  }
+  .toolbar {
+    height: 46px; background: #3c424c; display: flex; align-items: center;
+    gap: 14px; padding: 0 18px; color: #d7dbe1; font-size: 14px;
+  }
+  .tool { width: 26px; height: 26px; border-radius: 4px; background: #565e6b; }
+  .board {
+    position: absolute; inset: 60px 40px 40px 40px;
+    background: #ffffff;
+    background-image: linear-gradient(#eef0f3 1px, transparent 1px),
+                      linear-gradient(90deg, #eef0f3 1px, transparent 1px);
+    background-size: 28px 28px;
+    border: 1px solid #b9bfc8; border-radius: 6px;
+  }
+  .arrow { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); }
+  .arrow.hidden { display: none; }
+  .toggle {
+    position: fixed; left: 16px; bottom: 16px;
+    padding: 8px 14px; border: 1px solid #9aa1ab; background: #fff;
+    border-radius: 4px; cursor: pointer; font-size: 13px; z-index: 10;
+  }
+</style>
+</head>
+<body>
+  <div class="toolbar">
+    <div class="tool"></div><div class="tool"></div><div class="tool"></div>
+    <span>白板 · 草稿区</span>
+  </div>
+
+  <div class="board">
+    <svg class="arrow" id="arrow" width="220" height="120" viewBox="0 0 220 120">
+      <!-- 朝左的粗箭头：深色单字形 -->
+      <polygon points="20,60 80,18 80,42 200,42 200,78 80,78 80,102" fill="#1f2430"/>
+    </svg>
+  </div>
+
+  <button class="toggle" onclick="document.getElementById('arrow').classList.toggle('hidden')">
+    切换 命中 / 空闲 态
+  </button>
+
+  <script>
+    // ?auto=1：自动循环 空闲 → 命中 → 空闲，方便录 demo GIF
+    if (new URLSearchParams(location.search).get('auto')) {
+      const el = document.getElementById('arrow');
+      const CYCLE = 9000, SHOW_AT = 1800, HIDE_AT = 5200;
+      (function tick() {
+        const t = Date.now() % CYCLE;
+        el.classList.toggle('hidden', !(t >= SHOW_AT && t < HIDE_AT));
+        requestAnimationFrame(tick);
+      })();
+    }
+  </script>
+</body>
+</html>

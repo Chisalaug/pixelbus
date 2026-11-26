@@ -1,0 +1,49 @@
+# Demo 1：HIS / 老系统弹出的危急值红色提示条
+#
+# 素材（放到 shots/ 目录，调阈值时对照看）：
+#   hit.png  —— 弹窗出现时的真实截图（红条可见）
+#   idle.png —— 平时没有弹窗时的截图
+#
+# 调阈值：
+#   pixelbus probe demos/alarm-popup/rules.yaml --region alarm
+# 框选区域：
+#   pixelbus probe demos/alarm-popup/rules.yaml --pick alarm --apply
+#
+# 录 GIF：
+#   python tools/record_gif.py demos/alarm-popup/rules.yaml --region alarm \
+#       --seconds 6 --out demos/alarm-popup/demo.gif
+
+version: 1
+fps: 10
+name: demo-alarm-popup
+
+regions:
+  # 红条整块（含 5px 外扩），1920x1080 下实测标定
+  alarm: {monitor: primary, rect: [0.241, 0.098, 0.245, 0.119]}
+
+signals:
+  red_alarm:
+    region: alarm
+    test:
+      # 实测：命中 0.835 / 空闲 0.000，阈值取中间偏严
+      color_ratio: {color: "#d0021b", min: 0.40, tol: 40}
+
+states:
+  # 连续 3 帧（10fps 下 0.3 秒）都是红的，才认为弹窗真的出现，压住闪烁
+  alarm_on: {when: red_alarm, stable_frames: 3}
+
+actions:
+  - on: alarm_on
+    do:
+      beep: {freq: 880, ms: 200}
+      text: "危急值弹窗出现，请立刻处理"
+
+  - on: alarm_on
+    when: disappear
+    do:
+      log: "弹窗消失，判定结束"
+
+server:
+  host: "127.0.0.1"
+  port: 8787
+  lock_port: 8788

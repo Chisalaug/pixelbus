@@ -1,0 +1,57 @@
+# Demo 3：老报表 / 表格页面内容有更新（不看变什么，只看"和干净底图比变了多少"）
+#
+# 素材：
+#   baseline.png —— 表格"没有新数据"时的区域底图（本目录自带一张 mock 示例，跟着仓库走）
+#   shots/hit.png —— 新行出现时的截图（不进 git，本地调阈值时对照看）
+#
+# 判据思路：整块区域和 baseline.png 做灰度差分，变化率过线就认为表格刷新了。
+# 跟"上一帧"比也能做，但那样只在新行出现的那一帧有一点点信号（10fps 下丢一帧就漏），
+# 跟固定底图比则整段时间都稳定过线。
+#
+# 两条要命的细节：
+#   1. 像素容差：粉底新行 (246,217,210) 和米黄纸 (239,233,218) 灰度只差 8。pixel_tol 取 12
+#      时这一行根本不算"变了"，实测变化率只有 3%；取 8 才有 46%。
+#   2. 区域要避开会动的东西。本机右下角有桌面宠物浮层，会到处飘；这只框"床号 + 姓名"
+#      两列最后两行（x 46~399），它飘不进来。
+#
+# 自己跑的时候，底图一定要在自己的窗口上重存一次（窗口位置、浏览器缩放、字体都变了
+# 的话旧底图就废了），命令：
+#   pixelbus probe demos/legacy-report/rules.yaml --region table \
+#       --save-baseline demos/legacy-report/baseline.png
+#   存的时候表格必须处在"没有新行"的空闲态，否则底图自带一行，判据就反了。
+#
+# 调阈值：
+#   pixelbus probe demos/legacy-report/rules.yaml --region table
+# 录 GIF：
+#   python tools/record_gif.py demos/legacy-report/rules.yaml --region table \
+#       --seconds 9 --out demos/legacy-report/demo.gif
+
+version: 1
+fps: 10
+name: demo-legacy-report
+
+regions:
+  # 最后两行（"11 王某 血糖" / 新来的 "12 赵某 血钾"），1920x1080 下实测标定
+  table: {monitor: primary, rect: [0.024, 0.746, 0.184, 0.068]}
+
+signals:
+  table_changed:
+    region: table
+    test:
+      # 实测：命中 0.460 / 空闲 0.000（同一窗口、同一缩放），阈值取中间偏严
+      diff: {reference: baseline.png, min: 0.15, pixel_tol: 8, downsample: 2}
+
+states:
+  report_dirty: {when: table_changed, stable_frames: 2}
+
+actions:
+  - on: report_dirty
+    do:
+      log: "老报表有新行，去看一眼"
+      # 换成自己的 webhook 就能推到飞书 / 钉钉 / 本地脚本：
+      # webhook: "http://127.0.0.1:9999/hook"
+
+server:
+  host: "127.0.0.1"
+  port: 8791
+  lock_port: 8792

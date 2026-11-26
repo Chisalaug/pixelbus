@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>mock · 老报表</title>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    font-family: "Consolas", "Microsoft YaHei", monospace;
+    background: #d8d2c4; height: 100vh; overflow: hidden;
+  }
+  .shell {
+    position: absolute; inset: 30px 30px 50px 30px;
+    background: #efe9da; border: 1px solid #a99f88; border-radius: 4px;
+    padding: 18px;
+  }
+  h1 { font-size: 16px; color: #4a4230; margin-bottom: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; color: #33302a; }
+  th, td { border: 1px solid #b6ac93; padding: 7px 10px; text-align: left; }
+  th { background: #ddd3ba; }
+  tr.new td { background: #f6d9d2; font-weight: 700; }
+  /* 用 visibility 而不是 display：隐藏时仍占着这一行的高度，
+     表格和下面的"共 N 条记录"不会上下跳，录 demo 时区域内容才稳定 */
+  tr.new.hidden { visibility: hidden; }
+  .status { margin-top: 14px; font-size: 12px; color: #6b6250; }
+  .toggle {
+    position: fixed; left: 16px; bottom: 16px;
+    padding: 8px 14px; border: 1px solid #9a8f76; background: #fff;
+    border-radius: 4px; cursor: pointer; font-size: 13px;
+  }
+</style>
+</head>
+<body>
+  <div class="shell">
+    <h1>检验结果回报表（老系统 mock）</h1>
+    <table>
+      <tr><th>床号</th><th>姓名</th><th>项目</th><th>结果</th><th>时间</th></tr>
+      <tr><td>03</td><td>张某</td><td>白细胞</td><td>6.2</td><td>08:10</td></tr>
+      <tr><td>07</td><td>李某</td><td>血红蛋白</td><td>128</td><td>08:12</td></tr>
+      <tr><td>11</td><td>王某</td><td>血糖</td><td>5.6</td><td>08:15</td></tr>
+      <tr class="new" id="newrow">
+        <td>12</td><td>赵某</td><td>血钾</td><td>6.8 ↑</td><td>09:42</td>
+      </tr>
+    </table>
+    <div class="status">共 4 条记录 · 数据每 30 秒自动刷新</div>
+  </div>
+
+  <button class="toggle" onclick="document.getElementById('newrow').classList.toggle('hidden')">
+    切换 命中 / 空闲 态
+  </button>
+
+  <script>
+    // ?auto=1：自动循环 空闲 → 命中 → 空闲，方便录 demo GIF
+    if (new URLSearchParams(location.search).get('auto')) {
+      const el = document.getElementById('newrow');
+      const CYCLE = 9000, SHOW_AT = 1800, HIDE_AT = 5200;
+      (function tick() {
+        const t = Date.now() % CYCLE;
+        el.classList.toggle('hidden', !(t >= SHOW_AT && t < HIDE_AT));
+        requestAnimationFrame(tick);
+      })();
+    }
+  </script>
+</body>
+</html>

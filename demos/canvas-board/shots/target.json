@@ -1,0 +1,29 @@
+{
+  "source": {
+    "width": 1906,
+    "height": 1063
+  },
+  "screen": {
+    "width": 1920,
+    "height": 1080
+  },
+  "region": "board",
+  "window_in_source": {
+    "x": 958,
+    "y": 0,
+    "w": 948,
+    "h": 532
+  },
+  "target_in_source": {
+    "x": 1338,
+    "y": 266,
+    "w": 204,
+    "h": 107
+  },
+  "target_in_crop": {
+    "x": 380,
+    "y": 266,
+    "w": 204,
+    "h": 107
+  }
+}

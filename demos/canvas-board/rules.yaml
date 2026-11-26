@@ -1,0 +1,50 @@
+# Demo 2：canvas 白板 / 绘图应用里出现一个箭头（页面没有 API，只能靠像素看）
+#
+# 素材（放到 shots/ 目录）：
+#   hit.png  —— 白板上画出箭头时的截图
+#   idle.png —— 白板空白 / 只有格线时的截图
+#
+# 判据思路：单个字形（列簇数=1）+ 瘦长宽高比 + 墨迹面积占比合理 = 白板上多了一个
+# 像箭头的深色标记。三个判据一起上，少一个都容易误判。
+#
+# 注意两件事：
+#   1. 白板底是白的 + 有浅灰格线。不显式给 threshold 的话 auto（Otsu）阈值会被格线
+#      带偏——格线被当成"墨迹"，runs 照样等于 1，判据就形同虚设。所以 threshold 写死 120。
+#   2. 这里**不判朝向**。三角头 + 细尾巴的箭头，墨迹重心反而偏向尾部（实测 centroid_dx
+#      = +0.04，看着像"偏右"），拿它当"箭头朝左"的判据会一直 miss。见 PITFALLS 5.4。
+#
+# 调阈值：
+#   pixelbus probe demos/canvas-board/rules.yaml --region board
+# 录 GIF：
+#   python tools/record_gif.py demos/canvas-board/rules.yaml --region board \
+#       --seconds 6 --out demos/canvas-board/demo.gif
+
+version: 1
+fps: 10
+name: demo-canvas-board
+
+regions:
+  # 箭头外扩 12px，1920x1080 下实测标定
+  board: {monitor: primary, rect: [0.697, 0.246, 0.106, 0.099]}
+
+signals:
+  arrow_seen:
+    region: board
+    test:
+      glyph_runs: {count: 1, min_area: 60, denoise: 2, ink: dark, threshold: 120}
+      aspect: {min: 1.1, max: 4.5, ink: dark, threshold: 120}
+      # 实测：命中 0.31 / 空闲 0.00
+      ink_ratio: {min: 0.20, max: 0.65, ink: dark, threshold: 120}
+
+states:
+  arrow_present: {when: arrow_seen, stable_frames: 2}
+
+actions:
+  - on: arrow_present
+    do:
+      log: "白板上出现箭头标记"
+
+server:
+  host: "127.0.0.1"
+  port: 8789
+  lock_port: 8790

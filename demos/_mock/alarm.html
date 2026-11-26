@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>mock · 危急值弹窗</title>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    font-family: "Microsoft YaHei", sans-serif;
+    background: #dfe3e8;
+    height: 100vh;
+    overflow: hidden;
+  }
+  .main {
+    position: absolute; inset: 40px 40px 60px 40px;
+    background: #f4f5f7; border: 1px solid #c7ccd4; border-radius: 6px;
+    padding: 24px; color: #5a616b;
+  }
+  .main h1 { font-size: 18px; font-weight: 600; margin-bottom: 16px; }
+  .row { height: 22px; background: #e7eaee; border-radius: 3px; margin-bottom: 12px; }
+  /* 目标区域：右上角红色提示条 */
+  .alarm {
+    position: absolute; top: 24px; right: 24px;
+    width: 460px; padding: 18px 22px;
+    background: #d0021b; color: #fff; border-radius: 6px;
+    box-shadow: 0 6px 18px rgba(208, 2, 27, .35);
+  }
+  .alarm .tag { font-size: 13px; opacity: .85; letter-spacing: 2px; }
+  .alarm .big { font-size: 26px; font-weight: 700; margin: 6px 0 4px; }
+  .alarm .sub { font-size: 14px; opacity: .92; }
+  .alarm.hidden { display: none; }
+  .toggle {
+    position: fixed; left: 16px; bottom: 16px;
+    padding: 8px 14px; border: 1px solid #9aa1ab; background: #fff;
+    border-radius: 4px; cursor: pointer; font-size: 13px;
+  }
+</style>
+</head>
+<body>
+  <div class="main">
+    <h1>住院患者监护一览（mock）</h1>
+    <div class="row" style="width:70%"></div>
+    <div class="row" style="width:55%"></div>
+    <div class="row" style="width:62%"></div>
+    <div class="row" style="width:48%"></div>
+  </div>
+
+  <div class="alarm" id="alarm">
+    <div class="tag">⚠ 危急值报警</div>
+    <div class="big">血钾 6.8 mmol/L</div>
+    <div class="sub">床号 12 · 请立即复核并处理</div>
+  </div>
+
+  <button class="toggle" onclick="document.getElementById('alarm').classList.toggle('hidden')">
+    切换 命中 / 空闲 态
+  </button>
+
+  <script>
+    // ?auto=1：自动循环 空闲 → 命中 → 空闲，方便录 demo GIF
+    if (new URLSearchParams(location.search).get('auto')) {
+      const el = document.getElementById('alarm');
+      const CYCLE = 9000, SHOW_AT = 1800, HIDE_AT = 5200;
+      (function tick() {
+        const t = Date.now() % CYCLE;
+        el.classList.toggle('hidden', !(t >= SHOW_AT && t < HIDE_AT));
+        requestAnimationFrame(tick);
+      })();
+    }
+  </script>
+</body>
+</html>

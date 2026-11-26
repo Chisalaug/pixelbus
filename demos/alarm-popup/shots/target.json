@@ -1,0 +1,29 @@
+{
+  "source": {
+    "width": 1906,
+    "height": 1063
+  },
+  "screen": {
+    "width": 1920,
+    "height": 1080
+  },
+  "region": "alarm",
+  "window_in_source": {
+    "x": 0,
+    "y": 0,
+    "w": 954,
+    "h": 532
+  },
+  "target_in_source": {
+    "x": 463,
+    "y": 106,
+    "w": 470,
+    "h": 129
+  },
+  "target_in_crop": {
+    "x": 463,
+    "y": 106,
+    "w": 470,
+    "h": 129
+  }
+}
