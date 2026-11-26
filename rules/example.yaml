@@ -1,0 +1,87 @@
+# pixelbus 规则示例
+#
+# 这份文件就是契约本身：跑 `pixelbus run rules/example.yaml` 看事件，
+# 跑 `pixelbus probe rules/example.yaml --region alarm` 现场调阈值。
+# 所有坐标都是相对显示器尺寸的 0~1 比例，换分辨率不用改。
+
+version: 1
+fps: 10
+name: "示例：危急值弹窗 + 箭头判定"
+
+regions:
+  # 右上角提示条：left 0.72 → 从 72% 处开始，宽 26%，高 10%
+  alarm: {monitor: primary, rect: [0.72, 0.08, 0.26, 0.10]}
+  # 屏幕中央 30%×30%：箭头刺激常画在这里（canvas 应用只能靠像素看）
+  center: {monitor: primary, rect: [0.35, 0.35, 0.30, 0.30]}
+  # 左下角状态栏：只关心"有没有新东西冒出来"
+  status: {monitor: primary, pixels: [24, 900, 420, 90]}   # 也可以直接写像素
+
+signals:
+  # 1) 红底提示条：这块区域里 25% 以上是 #d0021b
+  red_alarm:
+    region: alarm
+    test:
+      color_ratio: {color: "#d0021b", min: 0.25, tol: 40}
+
+  # 2) 单个字形箭头，且朝左 —— 三个判据一起上，少一个就会误判
+  arrow_left:
+    region: center
+    test:
+      glyph_runs: {count: 1, min_area: 60, denoise: 2}
+      aspect: [1.1, 4.5]
+      centroid_dx: "<-0.02"
+
+  # 3) 状态栏内容发生变化（不看变什么，只看"变了"）
+  status_changed:
+    region: status
+    test:
+      diff: {min: 0.04, pixel_tol: 12, downsample: 2}
+
+  # 4) 弹窗里的关键词（可选 extra，装了 pixelbus[ocr] 才有用）
+  # popup_text:
+  #   region: alarm
+  #   test:
+  #     ocr_keyword: {keyword: ["危急值", "panic"], min_conf: 0.6}
+
+states:
+  # 连续 3 帧（10fps 下 0.3 秒）都是红的，才认为弹窗真的出现了
+  alarm_on: {when: red_alarm, stable_frames: 3}
+  # 组合：既要有红色提示条，箭头又朝左
+  danger_left: {when: "red_alarm & arrow_left", stable_frames: 2}
+  report_dirty: {when: status_changed, stable_frames: 2}
+
+actions:
+  - on: alarm_on
+    when: appear
+    do:
+      webhook: "https://open.feishu.cn/open-apis/bot/v2/hook/REPLACE-ME"
+      text: "危急值弹窗出现，请立刻处理"
+
+  - on: alarm_on
+    when: disappear
+    do:
+      log: "弹窗消失，判定结束"
+
+  - on: danger_left
+    do:
+      # 老系统没有快捷键就手动点：press 需要 pip install pixelbus[keys]
+      press: "alt+f4"
+
+  - on: report_dirty
+    do:
+      # exec 交给自己的脚本：朗读、截图、上传都行
+      exec: ["python", "-c", "print('status bar changed')"]
+
+  # 蜂鸣提醒（仅 Windows，winsound）：beep: 880 或 {freq: 880, ms: 200}
+  # - on: alarm_on
+  #   do: {beep: {freq: 880, ms: 200}}
+
+  # MQTT 发布（需要 pip install "pixelbus[mqtt]"）；payload 缺省发事件 JSON
+  # - on: alarm_on
+  #   do: {mqtt: {topic: "pixelbus/alarm", host: "127.0.0.1", port: 1883, qos: 0}}
+  #   cooldown: 30
+
+server:
+  host: "127.0.0.1"
+  port: 8787
+  lock_port: 8788
