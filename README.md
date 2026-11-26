@@ -1,2 +1,414 @@
 # pixelbus
-把没有 API 的图形界面变成可订阅的语义事件流。YAML 定义区域与像素判据 → appear/disappear/change 事件 → SSE / webhook / 按键 / MCP。Windows 实测 1080p 三区域 15fps 占单核 &lt; 5%，内存约 50MB。给你的老系统装个门铃：盯住屏幕上几个小区域，状态一变就发 SSE 事件。不录屏、不做全量 OCR、不注入页面、不挂调试器。YAML 写判据，probe 实时打分调阈值，动作/按键/MCP 都能接。
+
+<div align="center">
+
+![pixelbus](https://img.shields.io/badge/pixelbus-像素状态总线-d0021b?style=for-the-badge&labelColor=1f2430)
+
+**给你的老系统装一个门铃。**
+
+![python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-3776AB?logo=python&logoColor=white)
+![tests](https://img.shields.io/badge/tests-201%20passed-2ea44f)
+![deps](https://img.shields.io/badge/依赖-mss%20%2B%20numpy-1f2430)
+![license](https://img.shields.io/badge/license-MIT-d0021b)
+![platform](https://img.shields.io/badge/platform-Windows%20实测%20%7C%20macOS%20%7C%20Linux-lightgrey)
+![pypi](https://img.shields.io/pypi/v/pixelbus?label=pypi&color=blue)
+![no-ocr](https://img.shields.io/badge/不做全量%20OCR-一个像素都不猜-yellow)
+
+</div>
+
+**把任意没有 API 的图形界面，变成可订阅的语义事件流。**
+
+不用录制全屏、不做全量 OCR、不注入页面、不碰 debugger / DevTools。
+它只做一件事：**盯住屏幕上几个小区域，判断"现在是这个样子吗"，然后发一条事件。**
+
+```bash
+pixelbus probe rules.yaml        # 交互式框选 + 实时打分，调阈值
+pixelbus run rules.yaml          # 跑起来，SSE 推事件，命中就执行 action
+```
+
+```
+regions  →  predicates  →  signals  →  states（去抖）  →  events  →  actions
+  框选        看像素        判断        连续 N 帧才算      SSE        webhook/press/exec
+```
+
+> 当前进度：**M0（骨架 + 判据单测）、M1（引擎 + CLI + 单实例锁）、M2（HTTP + SSE）、M3（actions 动作分发）、M4（MCP server）、M5（三个 demo + GIF）、M6（打包发布 / CI）已全部完成**，版本 `0.1.0`。
+> 开发过程中真实踩过的坑都记在 [PITFALLS.md](PITFALLS.md) —— 想抄这套方案的话建议先看那个，能省你几个通宵。
+> 改了什么看 [CHANGELOG.md](CHANGELOG.md)。
+
+## 为什么会有这东西
+
+因为有些系统，永远不主动告诉你"我好了"：
+
+- 检验科的 HIS 弹出一个危急值红条，然后安静地等谁用眼睛发现它；
+- 同事在共享白板上画了个箭头，会议开始了，而你的脚本还在睡；
+- 一份 2003 年的报表默默多了一行，只有恰好刷新页面的人才看得见。
+
+它们的共同点不是"老"，而是：**没有 API、没有事件、没有 webhook，只有像素。**
+pixelbus 就是那台给像素装上的门铃——门一响，它就发一条 JSON 出去，别的程序负责起床干活。
+
+也正因为它只读像素：**不注入页面、不挂调试器、不碰 DevTools、不录全屏**。
+界面是你的，它只是站在门口看。
+
+## 和别人的区别
+
+| | SikuliX | PyAutoGUI | Airtest | screenpipe | **pixelbus** |
+|---|---|---|---|---|---|
+| 定位 | 截图找图 → 点 | 模拟鼠标键盘 | 游戏/App UI 自动化 | 全天录屏 + 本地索引 | **屏幕状态 → 事件流** |
+| 判定方式 | 模板匹配 | 坐标死写 | 图像识别 + Poco | 全量录制 + OCR/LLM | 纯几何判据（颜色/列簇/宽高比/质心/差分） |
+| 输出 | 一次动作 | 一次动作 | 一次动作 | 可搜索的历史 | **持续可订阅的 appear/disappear/change** |
+| CPU/内存 | 低 | 极低 | 中 | 高（一直在录） | **低（只抓几个小区域，15fps < 5% 单核）** |
+| 依赖 | JVM + OpenCV | 无 | OpenCV + ADB | 一堆模型 | mss + numpy |
+| 适合 | 一次性脚本 | 脚本 | 手游自动化 | 个人记忆库 | **没有 API 的老系统 / canvas / 弹窗告警** |
+
+一句话：SikuliX 是"帮我点一下"，screenpipe 是"全都录下来"，pixelbus 是"**状态变了通知我**"。
+前两个是手脚，这个是耳朵——它从不代你操作，只负责听见门口有人。
+
+## 5 分钟上手
+
+安装（还没发到 PyPI，先本地装轮子；发上去之后 `pipx install pixelbus` 就等价）：
+
+```bash
+python -m build                      # 或在 Releases 里下现成的 wheel
+pipx install dist/pixelbus-0.1.0-py3-none-any.whl   # 命令行工具，装进隔离环境
+# uv 用户：uv tool install dist/pixelbus-0.1.0-py3-none-any.whl
+# 想当库用：pip install dist/pixelbus-0.1.0-py3-none-any.whl
+```
+
+可选依赖按需装：
+
+```bash
+pipx inject pixelbus pynput          # press 动作      ⇔ pip install "pixelbus[keys]"
+pipx inject pixelbus paho-mqtt       # mqtt 动作       ⇔ pip install "pixelbus[mqtt]"
+pipx inject pixelbus mcp             # MCP server      ⇔ pip install "pixelbus[mcp]"
+pipx inject pixelbus rapidocr-onnxruntime   # ocr_keyword ⇔ pip install "pixelbus[ocr]"
+```
+
+1. 框一个区域：`pixelbus probe rules.yaml --pick alarm`
+2. 看着实时分数把阈值调到手感最稳的位置
+3. `pixelbus run rules.yaml`
+4. 订阅：`curl -N http://127.0.0.1:8787/events`
+
+最小规则：
+
+```yaml
+version: 1
+fps: 10
+regions:
+  alarm: {monitor: primary, rect: [0.72, 0.08, 0.26, 0.10]}
+signals:
+  red_alarm: {region: alarm, test: {color_ratio: {color: "#d0021b", min: 0.25}}}
+states:
+  alarm_on: {when: red_alarm, stable_frames: 3}
+actions:
+  - {on: alarm_on, do: {webhook: "https://open.feishu.cn/...", text: "危急值弹窗"}}
+```
+
+## Demo：三个案发现场
+
+三个真实场景样例（可直接跑的规则 + GIF）见 [demos/](demos/README.md)。它们分别代表像素门铃最常被按响的三种情形：
+
+1. **有人喊你，但只在屏幕上喊**（HIS 危急值红条）；
+2. **有人动手了，但没留消息**（白板上出现一个箭头）；
+3. **有东西变了，但没人通知**（老报表多出一行）。
+
+GIF 是用真机截出来的 hit/idle 两帧合成的（idle → hit → idle 循环，不是实时录屏）：
+
+| 危急值红色弹窗 | canvas 白板箭头 | 老报表多出一行 |
+|---|---|---|
+| ![alarm-popup](demos/alarm-popup/demo.gif) | ![canvas-board](demos/canvas-board/demo.gif) | ![legacy-report](demos/legacy-report/demo.gif) |
+
+- 三条规则都在这台 1920×1080 / 100% 缩放的真机上标定过，实测分数写在各自的 YAML 注释里（命中 0.835 / 0.000、三条全过 / 三条全失、0.441 / 0.000）。
+- 换机器必须重标：`probe --pick <region> --apply` 重框区域，报表 demo 还要重存固定底图（`--save-baseline`，且必须处在"没有新行"的空闲态）。
+- 像素阈值对主题、字体、浏览器缩放都敏感，别抄数字，看 `probe` 打出来的实时分数。
+- 三个 demo 的规则结构由 `tests/test_demos.py` 守着，判据在真截图上过不过由 `python tools/check_demo.py` 实测（要求命中过、空闲不过、余量 ≥ 0.2）。
+
+## 命令
+
+```bash
+pixelbus run rules.yaml            # 跑起来：终端事件流 + HTTP，按 Ctrl+C 停
+pixelbus run rules.yaml --duration 10 --no-status   # 只跑 10 秒，不打状态行
+pixelbus run rules.yaml --port 8790 --lock-port 8799   # 端口被占时换一套
+pixelbus run rules.yaml --no-server                  # 不起 HTTP，只打终端
+pixelbus probe rules.yaml --pick alarm               # 框选一个区域并保存进 YAML
+pixelbus probe rules.yaml --region alarm --seconds 20   # 只盯着 alarm，实时打分数
+pixelbus probe rules.yaml --region alarm --rect 0.72,0.08,0.26,0.10   # 手输相对坐标
+pixelbus probe rules.yaml --region table --save-baseline base.png     # 把当前区域存成 diff 底图
+pixelbus doctor                    # 显示器 / DPI / 可选依赖 / 抓屏耗时 / 抓屏路径
+pixelbus validate rules.yaml       # 只校验，不跑
+pixelbus mcp rules.yaml            # 起 MCP server（stdio），把状态/等待/按键暴露给 Agent
+```
+
+`probe` 会把**每条判据的分数 + 原始指标（墨量、簇数、最大缝、宽高比、质心偏移、主色）**都打出来，
+阈值照着抄。`--apply` 会把框选结果写回 YAML（原文件先备份成 `.bak`）。
+
+框选窗口是"半透明遮罩拖拽"。它需要一个**真能开 Tk 窗口**的 Python：有些被打包/裁剪过的
+Python 里 `import tkinter` 能过、`Tk()` 却报 `Can't find a usable init.tcl`（Tcl 数据被裁了）。
+pixelbus 会自动往下找一个能开窗的解释器（`py -3.14` / `py -3` / `python3` …），
+你也能自己指定：
+
+```bash
+# Windows
+$env:PIXELBUS_TK_PYTHON = "C:\Python313\python.exe"
+# macOS / Linux
+export PIXELBUS_TK_PYTHON=/usr/bin/python3
+
+pixelbus doctor    # 会直接告诉你"框选会用哪个解释器"
+```
+
+单实例锁：`run` 会占住 `server.lock_port`（默认 8788）。再启动一个会明确告诉你"已经有 pixelbus 在跑"并退出，
+不会出现两份程序同时抓屏、同时执行动作的情况。
+
+## 接口（M2）
+
+`run` 起来之后，同一个进程里带一个 HTTP 服务（默认 `127.0.0.1:8787`）：
+
+| 接口 | 说明 |
+|---|---|
+| `GET /state` | 当前完整快照：每个 signal 的分数 / 每条判据的原始指标 / 每个 state 是否成立 |
+| `GET /events` | **SSE 事件流**，`appear` / `disappear` / `change` / `value` |
+| `POST /reload` | 重载 YAML（改阈值不用重启）；规则写错会返回 400 + **带行号的问题清单** |
+| `GET /health` | 存活探测：版本、规则名、uptime、帧数、丢帧、抓屏失败、订阅者数 |
+| `GET /` | 接口索引（浏览器打开就能看到有什么） |
+
+```bash
+curl -N http://127.0.0.1:8787/events                    # 全部事件
+curl -N "http://127.0.0.1:8787/events?kinds=appear"     # 只看出现
+curl -N "http://127.0.0.1:8787/events?name=alarm_on"    # 只盯一个名字（state 也行）
+curl -N "http://127.0.0.1:8787/events?replay=5"         # 连上先补发最近 5 条
+curl -X POST http://127.0.0.1:8787/reload               # 改完 YAML 热重载
+```
+
+事件长这样（`event:` 就是事件类型，浏览器里可以 `addEventListener("appear", ...)`）：
+
+```
+id: 12
+event: appear
+data: {"kind":"appear","name":"alarm_on","target":"state","t":1795616002.25,"level":1.0,
+       "detail":{"stable_frames":3,"streak":3},"id":12}
+```
+
+- **`id` 单调递增**：断线重连时能知道自己漏了几条。
+- **连上先补历史**（`replay`，默认 3 条）：调阈值的时候人眼会错过前几条，补上很有用。
+- **15 秒一次 `: ping`**：空闲不断线。
+- **慢客户端只会掉老事件**，不会把引擎拖卡（队列满了丢最旧的）。
+- 想用 Python 消费：`pip install sseclient-py`，或者直接 `requests` + `iter_lines()`；要接 LLM/Agent 就走下面的 MCP。
+
+## MCP（M4）
+
+`pixelbus mcp rules.yaml` 起一个 MCP server（默认 stdio），Agent 不用自己轮询 HTTP，直接调工具：
+
+| 工具 | 说明 |
+|---|---|
+| `get_state` | 当前完整快照：signal 命中/分数/判据指标、state 是否成立、最近事件、动作统计 |
+| `list_targets` | 只列规则里有哪些 state / signal 和当前命中状态（不带判据细节） |
+| `wait_for(name, kind, timeout)` | 阻塞等某个 state/signal 出现 / 消失 / 变化；`kind`: appear / disappear / change / value / any；已命中会立刻返回 |
+| `press(keys)` | 模拟按键，如 `"ctrl+s"` 或 `["tab", "enter"]`（复用 actions 的按键解析，需要 `pixelbus[keys]`） |
+
+```bash
+pixelbus mcp rules.yaml                       # stdio（Claude Desktop / 其它 MCP 客户端默认接法）
+pixelbus mcp rules.yaml --transport sse       # 或 sse / streamable-http，给远程 Agent 用
+```
+
+MCP 进程内部还是同一个引擎：后台线程按 fps 抓屏求值，工具查询的是内存里的最新快照，`wait_for` 订阅事件队列阻塞唤醒。动作失败（缺 pynput、按键为空）返回结构化 `{ok: false, error}`，不会把工具调用炸掉。
+
+## 性能（实测）
+
+Windows 11 / 1920×1080 / 3 个区域 / 15fps：
+
+| | 数值 |
+|---|---|
+| CPU（单核 100%） | 每帧 2.2~3.6ms → **3.3%~5.4%**（逐帧计时，见 `tools/bench.py`） |
+| 内存（WorkingSet） | 峰值约 **50MB**（要求 <120MB） |
+| 判据纯计算 | 每帧 1.8~2.0ms（`--mode synthetic`，不抓屏、每帧都改像素的最坏情况） |
+| 抓屏 | 小区域 0.08~0.2ms/块（关掉 `CAPTUREBLT` 的快路径），兼容路径 0.5ms/块 |
+
+```bash
+python tools/bench.py                    # 真抓屏
+python tools/bench.py --mode synthetic   # 只测判据（不受桌面在播什么影响）
+```
+
+如果桌面正在播视频/动画，"整帧没变就复用上一帧结果"的快路径不会命中，测出来会偏高；
+静态界面（HIS、报表这类真实场景）命中率高，每帧能从 1.8ms 掉到 0.26ms。
+
+## 仓库结构
+
+```
+pixelbus/
+  capture.py      # mss 抓屏、区域解析（相对 rect / 绝对 pixels）、DPI、多屏
+  predicates.py   # color_ratio / glyph_runs / aspect / centroid_dx / diff / ink_ratio / ocr_keyword
+  rules.py        # YAML 契约 + 校验 + 带行号的友好报错
+  engine.py       # 求值 → 边沿检测 → appear/disappear/change/value（M1）
+  lock.py         # 单实例锁（占一个本地端口，重复启动明确报错）
+  picker.py       # 挑一个能开 Tk 窗口的解释器，解析框选结果
+  _pick_gui.py    # 全屏半透明遮罩 + 拖拽（只用标准库，可被别的 Python 跑）
+  server.py       # GET /state、GET /events(SSE)、POST /reload、GET /health（M2）
+  actions.py      # log / beep / press / webhook / exec / mqtt 动作分发（M3）
+  mcp_server.py   # MCP tools: get_state / list_targets / wait_for / press（M4）
+  cli.py          # pixelbus run / probe / doctor / validate / mcp（M1/M4）
+tools/bench.py    # 性能基准（真抓屏 / 纯判据两种口子）
+tools/record_gif.py       # 实时录目标区域的 GIF（M5）
+tools/make_demo_gif.py    # 用 shots 里的真实截图合成 demo GIF（M5，仓库里的 GIF 就是它出的）
+tools/crop_demo_shots.py  # 全景截图 → 各 demo 的 shots/ + target.json（M5）
+tools/check_demo.py       # 用真截图实测每份 demo 规则：命中过 / 空闲不过 / 余量 ≥0.2（M5）
+demos/            # 三个真实场景样例：规则 + GIF（M5）
+tests/            # 全合成图单测，不依赖真实截图
+rules/example.yaml
+MANIFEST.in       # sdist 放什么（M6）—— 别把 shots/_mock 打进去
+CHANGELOG.md      # 版本变更（M6）
+.github/workflows/ci.yml  # 三平台测试 + 构建/安装冒烟（M6）
+PITFALLS.md       # 踩坑记录 —— 建议所有想抄这套方案的人先看
+```
+
+## YAML 全部字段
+
+顶层：
+
+| 字段 | 默认 | 说明 |
+|---|---|---|
+| `version` | 必填 | 目前只能是 `1` |
+| `fps` | `10` | 采样帧率，0.2~60。低于 5 会明显漏掉短暂弹窗 |
+| `name` | 文件名 | 给人看的规则名，出现在日志和 `/state` 里 |
+| `regions` | 必填 | 要盯的区域 |
+| `signals` | 必填 | 每条 signal = 一个区域 + 一组判据 |
+| `states` | 可选 | 组合 + 去抖后的"状态"，只有状态能挂 action |
+| `actions` | 可选 | 状态变化时做什么 |
+| `server` | 可选 | `host`（默认 `127.0.0.1`）、`port`（8787）、`lock_port`（8788） |
+
+### regions
+
+```yaml
+regions:
+  alarm:  {monitor: primary, rect: [0.72, 0.08, 0.26, 0.10]}   # 相对坐标，x/y/w/h ∈ 0~1
+  status: {monitor: 1,       pixels: [24, 900, 420, 90]}       # 绝对像素，多屏更精确
+```
+
+| 字段 | 默认 | 说明 |
+|---|---|---|
+| `monitor` | `primary` | `primary` / `all` / 显示器序号（`0`、`1`…，`0` 是所有屏的并集） |
+| `rect` | — | `[x, y, w, h]`，相对该显示器的比例 |
+| `pixels` | — | `[left, top, width, height]`，绝对像素；与 `rect` 二选一 |
+
+> 画质缩放、DPI 变了，`rect` 相对坐标会自动跟着走；`pixels` 不会，换分辨率就得改。
+
+### signals
+
+```yaml
+signals:
+  red_alarm: {region: alarm, test: {color_ratio: {color: "#d0021b", min: 0.25}}}
+```
+
+| 字段 | 默认 | 说明 |
+|---|---|---|
+| `region` | 必填 | 引用 `regions` 里的名字 |
+| `test` | 必填 | 判据集合，默认**全部要过**（AND） |
+| `mode` | `all` | `all` = 全过才算命中；`any` = 任一命中 |
+| `cooldown` | `0` | 秒。两次 `appear` 的最小间隔，用来压住"闪烁导致的重复告警"。**只压 appear，不压 disappear** |
+| `values` | `false` | 打开后会按 1Hz 持续发 `value` 事件（带当前数值），适合接仪表盘 |
+
+### 判据（`test` 里的键）
+
+| 判据 | 参数 | 判的是什么 |
+|---|---|---|
+| `color_ratio` | `color`（`"#d0021b"` / `[r,g,b]` / 颜色列表）、`min`/`max`、`tol`(40) | 区域内该颜色像素的占比 |
+| `ink_ratio` | `min`/`max`、`ink`(auto/dark/light/color)、`threshold`、`color`、`denoise` | "有墨"的像素占比（不看具体颜色） |
+| `glyph_runs` | `count`/`runs`（`1`、`">=2"`）、`min_area`(40)、`min_width`(1)、`gap_px`(0)、`bridge_max`(1)、`ink`、`threshold`、`color`、`denoise` | 竖着的列簇数 —— 区分"单个字形"和"多字文本" |
+| `aspect` | `min`/`max`、`min_area`、`ink`、`threshold`、`color`、`denoise` | 墨迹外接框的宽高比 |
+| `centroid_dx` | `"<-0.02"` 或 `{min,max}` / `lt` / `gt`、`min_area`、`ink`、`threshold`、`color` | 墨迹质心相对框中心的水平偏移（判断箭头朝向） |
+| `diff` | `min`/`max`、`pixel_tol`(12)、`downsample`(2)、`reference`（参考图路径） | 和上一帧（或参考图）的变化率 |
+| `ocr_keyword` | `keyword`（字符串或列表）、`min_conf`(0.5)、`all`(true)、`scale`(2.0)、`lang`(ch) | 区域里有没有这几个词（**可选 extra**，做兜底，别当主力） |
+
+`ink` 的四种取值：`auto`（大津法自动判浅底深字/深底浅字，默认）、`dark`、`light`、`color`（配合 `color` 用，判"某种颜色的墨"）。
+
+### states
+
+```yaml
+states:
+  alarm_on:    {when: red_alarm, stable_frames: 3}
+  danger_left: {when: "red_alarm & arrow_left", stable_frames: 2}
+```
+
+| 字段 | 默认 | 说明 |
+|---|---|---|
+| `when` | 必填 | signal 名字、名字列表（=AND），或表达式 `& \| ! ( )`，也能引用**前面声明过的 state** |
+| `stable_frames` | `1` | 连续 N 帧才算成立；**消失也要连续 N 帧未命中**才算消失（对称去抖，压住闪烁） |
+| `on_change_only` | `false` | 只在发生变化时算数，适合"变了才提醒"的场合 |
+
+`when` 的运算优先级：`!` > `&` > `|`。想保险就加括号。
+
+### actions
+
+```yaml
+actions:
+  - {on: alarm_on, do: {webhook: "https://open.feishu.cn/...", text: "危急值弹窗"}}
+  - {on: danger_left, do: {press: "alt+f4"}}
+  - {on: report_dirty, do: {exec: ["python", "-c", "print(1)"], text: "报表有更新"}}
+  - {on: alarm_on, when: disappear, do: {beep: {freq: 880, ms: 200}}, cooldown: 30}
+```
+
+公共字段：
+
+| 字段 | 默认 | 说明 |
+|---|---|---|
+| `on` | 必填 | 一个 state 名，或名字列表（多个状态共用同一条动作） |
+| `do` | 必填 | 动作体，见下面六种；`text` / `payload` 是正文，**不算动作类型** |
+| `when` | `appear` | 事件类型过滤：`appear` / `disappear` / `change` / `value` / `any` |
+| `text` | `""` | 正文：webhook 的 `text`、log 的消息、mqtt 的默认载荷 |
+| `cooldown` | `0` | 秒，这条动作自己的节流（和 signal 的 cooldown 独立）；冷却内重复事件直接压住 |
+| `repeat` | `1` | 预留字段：>1 表示状态保持期间重复触发 N 次，语义后续里程碑再定 |
+
+六种动作：
+
+| 动作 | `do` 写法 | 行为 |
+|---|---|---|
+| `log` | `{log: "消息"}` | 往终端打一条；`log` 的值就是消息正文，没写就用事件描述兜底 |
+| `beep` | `{beep: true}` / `{beep: 880}` / `{beep: {freq: 880, ms: 200}}` | 蜂鸣（仅 Windows，winsound）；非 Windows 会记一条失败，不崩引擎 |
+| `press` | `{press: "ctrl+s"}` 或 `{press: ["tab", "enter"]}` | 模拟键盘：先按修饰键 → 点字符 → 反序松修饰；修饰键 `ctrl/alt/shift/cmd` |
+| `webhook` | `{webhook: "http(s)://...", text: "...", timeout: 5.0}` | POST JSON：`{"text", "event": 事件完整字典, "action": {"on", "kind"}}`；连不上 / 非 2xx 记为失败 |
+| `exec` | `{exec: ["python", ...]}` 或 `{exec: "cmd 字符串"}` | 拉起子进程后立即返回，不等待；工作目录是规则文件所在目录；Windows 下 detached、不弹控制台 |
+| `mqtt` | `{mqtt: "topic"}` 或 `{mqtt: {topic, payload, host: 127.0.0.1, port: 1883, qos: 0}}` | 发布一条；client 按 host/port 缓存复用；`payload` 缺省用 `text`，再缺省发事件 JSON |
+
+动作在内部工作线程里执行：webhook / exec / mqtt 慢一点也不会卡住抓屏；任何动作抛错都只记进 `status.failed` 和 `last_error`，不会把引擎拖垮。`/state` 快照里能看到 `actions` 段：动作条数、已触发、成功、失败、最近一条错误。
+
+> `press` 需要 `pip install "pixelbus[keys]"`（pynput）；`mqtt` 需要 `pip install "pixelbus[mqtt]"`（paho-mqtt）。缺依赖时动作会明确报"需要哪个 extra"，`doctor` 也会列出来。
+
+## 限制
+
+- **像素级判定对缩放、DPI、主题（深色/浅色）、字体非常敏感**：换机器、改分辨率、系统主题一改，阈值就得重调 —— 这就是 `probe` 存在的理由。
+- 多字文本 vs 单字形靠"列簇数"区分，字号小到字间距只有 1 列时会被合并成 1 簇；这种情况把区域收窄到单个字，或叠 `aspect` / `centroid_dx` 一起判。实测微软雅黑 60px 的字间距是 2 列（其中 1 列带淡墨），所以 `bridge_max` 默认 1 —— **这是个刻意的取舍：宁可把一句话判成多字形，也不要把一句话判成一个箭头**。
+- **分层窗口（`WS_EX_LAYERED`）可能抓不全**。为了快，默认关掉了 `CAPTUREBLT`（小区域快 5~6 倍），启动时会自检"关掉之后画面对不对"，发现确实漏内容就自动退回兼容模式。但桌面一直在播视频时，自检测不准，只能保持快路径 + 定期复检。如果你的目标界面是那种"半透明浮层"，先在 `pixelbus doctor` 里看一眼"抓屏路径"那一行。
+- 单实例锁是"占端口"实现的：端口被别的程序占了，`run` 会启动不了。换个 `server.lock_port` 就行。
+- **框选需要一台"能开 Tk 窗口"的 Python**。某些打包版/嵌入式 Python 里 tkinter 只是半残（模块在、Tcl 数据被裁），pixelbus 会自动换解释器，`doctor` 会告诉你会用哪个；实在找不到就设 `PIXELBUS_TK_PYTHON`，或者干脆用 `--rect` 手输坐标。
+- 非 Windows 平台（macOS / Linux）只是尽力支持：macOS 要给"屏幕录制"权限，Linux 的 Wayland 基本抓不了。Windows 是唯一实测过的平台。
+- 不做"考试辅助"类用途，不做录像存储，不做云端，不做浏览器调试注入。
+
+## 开发
+
+```bash
+pip install -e ".[dev]"
+pytest                                # 201 个用例，全合成图，不需要真实屏幕
+python tools/check_demo.py            # 拿 demos/*/shots 里的真截图验三份 demo 规则
+python tools/bench.py                 # 性能基准（会真抓屏）
+python -m pixelbus doctor             # 环境体检
+```
+
+想知道为什么代码长这样（而不是"看起来更直接的那样"），看 [PITFALLS.md](PITFALLS.md)。
+
+## 打包 / 发布
+
+```bash
+python -m build                # 出 dist/pixelbus-0.1.0.tar.gz 和 .whl
+python -m twine check dist/*   # 元数据 / README 渲染检查
+```
+
+- `MANIFEST.in` 决定 sdist 里有什么：带 `tests/`（含 `conftest.py`）、`tools/`、`demos/` 的规则和 GIF，
+  **不带** `demos/_mock/`（本地复现页）和 `demos/*/shots/`（调用方自己界面的截图）。
+- CI 在 `.github/workflows/ci.yml`：三平台（ubuntu / windows / macOS）× py3.11 / 3.13 跑测试，
+  再单独一个 job 构建 + `twine check` + 在干净 venv 里 `pip install dist/*.whl` 跑 CLI 冒烟。
+- 发版流程：改 `pyproject.toml` 的 `version` → 加一节 `CHANGELOG.md` → 提交 → 打 `v0.1.0` tag。
+  推 tag 时 CI 会把 `dist/*` 挂到 GitHub Release；要上 PyPI 再用 `twine upload dist/*`（需要自己的 token）。
+- 轮子只装 `pixelbus/` 这个包；`demos/`、`tools/`、`rules/` 只在 sdist 和仓库里，`pip install` 不会落到 site-packages。
+  没有 `[project.entry-points."pixelbus.actions"]` 的实现，那一行在 `pyproject.toml` 里只是留给第三方动作的钩子注释。
+
+## License
+
+MIT
