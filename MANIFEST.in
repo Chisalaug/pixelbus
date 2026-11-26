@@ -1,0 +1,25 @@
+# sdist / wheel 里到底放什么，全靠这个文件。没有它的话 setuptools 只会按默认模板
+# 收 `tests/test*.py`，连 `tests/conftest.py` 都漏掉（sdist 到手跑不了测试）。
+
+include LICENSE
+include README.md
+include PITFALLS.md
+include CHANGELOG.md
+include pyproject.toml
+
+# 规则样例 + 三个 demo（规则、GIF、固定底图、说明）
+include rules/example.yaml
+recursive-include demos *.md *.yaml *.json *.gif *.png
+
+# 工具脚本和测试：用户拿到 sdist 也能复现基准、跑测试
+recursive-include tools *.py
+recursive-include tests *.py
+
+# 但下面这些绝对不进包：
+#   _mock/ 是本地复现用的 HTML + 用户的全景截图
+#   */shots/ 是调用方自己界面上的截图（含界面信息）
+#   .bak / .egg-info / 构建中间物
+prune demos/_mock
+recursive-exclude demos/*/shots *
+recursive-exclude * *.bak *.egg-info
+global-exclude __pycache__ *.py[cod] .DS_Store Thumbs.db

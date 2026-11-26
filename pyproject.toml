@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pixelbus"
+version = "0.1.0"
+description = "把任意没有 API 的图形界面，变成可订阅的语义事件流"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "pixelbus contributors" }]
+keywords = ["screenshot", "automation", "event-bus", "sse", "vision", "gui"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: MacOS :: MacOS X",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Testing",
+  "Topic :: Multimedia :: Graphics :: Capture :: Screen Capture",
+]
+dependencies = [
+  "numpy>=1.24",
+  "mss>=9.0",
+  "PyYAML>=6.0",
+  "fastapi>=0.110",
+  "uvicorn>=0.27",
+]
+
+[project.optional-dependencies]
+keys = ["pynput>=1.7.6"]
+ocr = ["rapidocr-onnxruntime>=1.3"]
+mqtt = ["paho-mqtt>=2.0"]
+mcp = ["mcp>=1.2"]
+dev = ["pytest>=8.0", "pillow>=10.0", "httpx>=0.27"]
+
+[project.urls]
+Homepage = "https://github.com/pixelbus/pixelbus"
+Repository = "https://github.com/pixelbus/pixelbus"
+Issues = "https://github.com/pixelbus/pixelbus/issues"
+Changelog = "https://github.com/pixelbus/pixelbus/blob/main/CHANGELOG.md"
+
+[project.scripts]
+pixelbus = "pixelbus.cli:main"
+
+[project.entry-points."pixelbus.actions"]
+# 预留：第三方动作可以用 entry point 挂进来
+# my_action = "my_pkg.actions:register"
+
+[tool.setuptools.packages.find]
+include = ["pixelbus*"]
+
+[tool.setuptools.package-data]
+pixelbus = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q --strict-markers"
+filterwarnings = ["ignore::DeprecationWarning"]
